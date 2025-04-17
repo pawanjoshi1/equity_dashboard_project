@@ -1,158 +1,60 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-from datetime import datetime, timedelta
-import requests
-from bs4 import BeautifulSoup
-import plotly.graph_objects as go
+import streamlit as st import yfinance as yf import pandas as pd import datetime from streamlit_option_menu import option_menu from plotly import graph_objs as go
 
-st.set_page_config(layout="wide", page_title="Equity Research Dashboard")
+st.set_page_config(page_title="Equity Research Dashboard", layout="wide")
 
-# --- Helper Functions ---
-@st.cache_data
-def get_stock_data(ticker):
-    stock = yf.Ticker(ticker)
-    info = stock.info
-    hist = stock.history(period="1y")
-    return info, hist
+--- HEADER ---
 
-@st.cache_data
-def get_financials(ticker):
-    stock = yf.Ticker(ticker)
-    fin = stock.quarterly_financials
-    return fin
+st.title("Equity Research Dashboard") st.markdown("Search and analyze detailed information about NSE & BSE stocks.")
 
-def get_news(query, months_back=6, max_articles=5):
-    today = datetime.today()
-    date_filter = today - timedelta(days=30*months_back)
-    url = f"https://news.google.com/search?q={query}%20after:{date_filter.date()}&hl=en-IN&gl=IN&ceid=IN:en"
-    res = requests.get(url)
-    soup = BeautifulSoup(res.text, 'html.parser')
-    headlines = soup.select("article h3 a")[:max_articles]
-    return [f"https://news.google.com{h['href'][1:]}" for h in headlines]
+--- STOCK SEARCH ---
 
-def format_large_number(num):
-    if num is None:
-        return "N/A"
-    for unit in ['', 'K', 'M', 'B', 'T']:
-        if abs(num) < 1000.0:
-            return f"{num:3.1f}{unit}"
-        num /= 1000.0
-    return f"{num:.1f}P"
+stocks_df = pd.read_csv("https://archives.nseindia.com/content/equities/EQUITY_L.csv") stocks_df = stocks_df[['SYMBOL', 'NAME OF COMPANY']]
 
-def display_overview(info, hist):
-    st.header(f"{info.get('shortName', '')} ({info.get('symbol', '')})")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Sector", info.get("sector", "N/A"))
-    col2.metric("Industry", info.get("industry", "N/A"))
-    col3.metric("Market Cap", format_large_number(info.get("marketCap", 0)))
+stocks_df['Display'] = stocks_df['SYMBOL'] + " - " + stocks_df['NAME OF COMPANY'] stock_choice = st.selectbox("Search for a Stock (NSE)", options=stocks_df['Display']) ticker = stock_choice.split(" - ")[0] + ".NS"
 
-    st.markdown(f"**Company Website:** [{info.get('website','N/A')}]({info.get('website','')})")
-    st.markdown(f"**Headquarters:** {info.get('city','')} , {info.get('country','')}")
-    st.plotly_chart(go.Figure(go.Scatter(x=hist.index, y=hist['Close'], name='Close Price')))
+--- LOAD STOCK DATA ---
 
-def display_management(info):
-    st.subheader("Management")
-    officers = info.get("companyOfficers", [])
-    if officers:
-        for officer in officers:
-            with st.expander(officer.get("name", "Unknown")):
-                st.write(f"**Role:** {officer.get('title', 'N/A')}")
-                st.write(f"**Age:** {officer.get('age', 'N/A')}")
-    else:
-        st.write("No management data available.")
+def load_stock_data(ticker): stock = yf.Ticker(ticker) info = stock.info hist = stock.history(period="1y") return info, hist
 
-def display_history(info):
-    st.subheader("Company History")
-    st.write(info.get("longBusinessSummary", "No history found."))
+info, hist = load_stock_data(ticker)
 
-def display_financials(ticker):
-    st.subheader("Quarterly Financials")
-    fin = get_financials(ticker)
-    if fin.empty:
-        st.warning("Financial data not available.")
-        return
+--- COMPANY OVERVIEW ---
 
-    st.dataframe(fin)
+st.subheader(f"{info.get('longName', ticker)} - Overview") col1, col2, col3 = st.columns(3)
 
-    try:
-        rev = fin.loc["Total Revenue"]
-        net = fin.loc["Net Income"]
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=rev.index, y=rev.values, name="Revenue"))
-        fig.add_trace(go.Bar(x=net.index, y=net.values, name="Net Income"))
-        st.plotly_chart(fig)
+col1.metric("Market Cap", f"{info.get('marketCap', 'N/A'):,}") col2.metric("Sector", info.get('sector', 'N/A')) col3.metric("Industry", info.get('industry', 'N/A'))
 
-        st.write("**YoY/QoQ Changes**")
-        yoy_rev = rev.pct_change(periods=4).iloc[-1] * 100 if len(rev) >= 5 else None
-        qoq_rev = rev.pct_change().iloc[-1] * 100 if len(rev) >= 2 else None
-        st.metric("YoY Revenue Change", f"{yoy_rev:.2f}%" if yoy_rev else "N/A")
-        st.metric("QoQ Revenue Change", f"{qoq_rev:.2f}%" if qoq_rev else "N/A")
-    except Exception as e:
-        st.error(f"Error creating financial charts: {e}")
+st.markdown(f"Website: {info.get('website', '')}})")
 
-def display_product_details(info):
-    st.subheader("Product Revenue Breakdown")
-    st.write("Detailed product revenue breakdown may not be available for all companies.")
-    st.write(info.get("longBusinessSummary", "No data available."))
+--- STOCK PRICE CHART ---
 
-def display_orders(ticker):
-    st.subheader("Recent Orders / Contracts")
-    st.write("Fetching latest contracts/orders from news...")
-    orders = get_news(f"{ticker} order received", 6)
-    if orders:
-        for i, link in enumerate(orders):
-            st.markdown(f"{i+1}. [View Order News]({link})")
-    else:
-        st.write("No order news found.")
+st.subheader("Stock Price Chart") fig = go.Figure() fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], name='Close')) fig.update_layout(title="Closing Price", xaxis_title="Date", yaxis_title="Price") st.plotly_chart(fig, use_container_width=True)
 
-def display_news(ticker, sector):
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Company News")
-        news = get_news(ticker, 6)
-        for link in news:
-            st.markdown(f"- [Company News]({link})")
+--- FINANCIALS ---
 
-    with col2:
-        st.subheader("Sector News")
-        if sector != "N/A":
-            sector_news = get_news(sector + " sector", 1)
-            for link in sector_news:
-                st.markdown(f"- [Sector News]({link})")
+st.subheader("Quarterly Financials") try: quarterly = yf.Ticker(ticker).quarterly_financials.T st.dataframe(quarterly) except: st.warning("Quarterly data not available")
 
-def main():
-    st.title("Equity Research Dashboard")
+--- COMPANY HISTORY ---
 
-    st.sidebar.title("Settings")
-    theme = st.sidebar.radio("Theme", ["Light", "Dark"])
-    favorites = ["INFY.NS", "TCS.BO", "RELIANCE.NS"]
-    ticker = st.sidebar.selectbox("Select Stock", favorites)
+st.subheader("Company Description") st.markdown(info.get('longBusinessSummary', 'No description available'))
 
-    with st.spinner("Loading data..."):
-        try:
-            info, hist = get_stock_data(ticker)
-            sector = info.get("sector", "N/A")
+--- MANAGEMENT ---
 
-            tabs = st.tabs(["Overview", "Financials", "Orders", "News"])
+st.subheader("Key Executives") if 'companyOfficers' in info: mgmt = pd.DataFrame(info['companyOfficers']) if not mgmt.empty: st.dataframe(mgmt[['name', 'title', 'age']]) else: st.write("No data available") else: st.write("No management data found")
 
-            with tabs[0]:
-                display_overview(info, hist)
-                display_management(info)
-                display_history(info)
-                display_product_details(info)
+--- ORDERS TAB ---
 
-            with tabs[1]:
-                display_financials(ticker)
+st.subheader("Latest Orders") st.write("[Sample Placeholder] Displaying latest major orders (Requires custom integration)")
 
-            with tabs[2]:
-                display_orders(ticker)
+--- NEWS ---
 
-            with tabs[3]:
-                display_news(ticker, sector)
+st.subheader("Company & Sector News") st.write("[Sample Placeholder] Displaying recent news headlines")
 
-        except Exception as e:
-            st.error(f"Failed to fetch data: {e}")
+--- PRODUCT INCOME ---
 
-if __name__ == "__main__":
-    main()
+st.subheader("Revenue by Product/Segment") st.write("[Sample Placeholder] Revenue breakdown by product (requires custom dataset)")
+
+--- FOOTER ---
+
+st.markdown("---") st.markdown("Created by [Your Name]. Data via Yahoo Finance.")
+
