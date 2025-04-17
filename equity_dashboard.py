@@ -1,5 +1,10 @@
-import streamlit as st import yfinance as yf import pandas as pd import datetime from streamlit_option_menu import option_menu from plotly import graph_objs as go
 
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import datetime
+from streamlit_option_menu import option_menu
+from plotly import graph_objs as go
 st.set_page_config(page_title="Equity Research Dashboard", layout="wide")
 
 --- HEADER ---
